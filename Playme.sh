@@ -1,187 +1,171 @@
 #!/bin/bash
-exec > >(tee -i build.log)
-exec 2>&1
-set -x
+#
+# Script For Building Android arm64 Kernel
+#
+# Copyright (C) 2021-2023 RooGhz720 <rooghz720@gmail.com>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 
+# Setup colour for the script
+yellow='\033[0;33m'
+white='\033[0m'
+red='\033[0;31m'
+green='\e[0;32m'
+
+# Deleting out "kernel complied" and zip "anykernel" from an old compilation
+echo -e "$green << cleanup >> \n $white"
+
+rm -rf out
+rm -rf zip
+rm -rf error.log
+
+echo -e "$green << setup dirs >> \n $white"
+
+# With that setup , the script will set dirs and few important thinks
+
+MY_DIR="${BASH_SOURCE%/*}"
+if [[ ! -d "$MY_DIR" ]]; then MY_DIR="$PWD"; fi
+
+# MIUI = High Dimens
+# OSS = Low Dimens
+
+export CHATID API_BOT TYPE_KERNEL
+
+
+# Kernel build config
+TYPE="MIUI"
+DEVICE="Redmi note 10 pro"
+KERNEL_NAME="AGHISNA"
+DEFCONFIG="sweet_defconfig"
+AnyKernel="https://github.com/RooGhz720/Anykernel3"
+AnyKernelbranch="master"
+HOSST="pakar"
+USEER="RooGhz720"
+ID="Alesaa"
+MESIN="Git Workflows"
+
+
+
+# clang stuff
+		echo -e "$green << cloning clang >> \n $white"
+		git clone --depth=1 -b release/15.x https://gitlab.com/GhostMaster69-dev/cosmic-clang.git "$HOME"/clang
+
+	export PATH="$HOME/clang/bin:$PATH"
+	export KBUILD_COMPILER_STRING=$("$HOME"/clang/bin/clang --version | head -n 1 | sed -e 's/  */ /g' -e 's/[[:space:]]*$//' -e 's/^.*clang/clang/')
+
+# Setup build process
+
+build_kernel() {
+Start=$(date +"%s")
+
+	make -j$(nproc --all) O=out \
+                              ARCH=arm64 \
+                              LLVM=1 \
+                              LLVM_IAS=1 \
+                              AR=llvm-ar \
+                              NM=llvm-nm \
+                              LD=ld.lld \
+                              OBJCOPY=llvm-objcopy \
+                              OBJDUMP=llvm-objdump \
+                              STRIP=llvm-strip \
+                              CC=clang \
+                              CROSS_COMPILE=aarch64-linux-gnu- \
+                              CROSS_COMPILE_ARM32=arm-linux-gnueabi-  2>&1 | tee error.log
+
+End=$(date +"%s")
+Diff=$(($End - $Start))
+}
+
+# Let's start
+echo -e "$green << doing pre-compilation process >> \n $white"
 export ARCH=arm64
 export SUBARCH=arm64
 export HEADER_ARCH=arm64
-export TOOLCHAIN_DIR=$(pwd)/tools/toolchain
-export KERNEL_SOURCE_DIR=$(pwd)/kernel_source/
-export AIK_DIR=$(pwd)/tools/AIK-Linux/
-export DTC_DIR=$(pwd)/tools/prebuilts/linux-x86/dtc
-export PREBUILTS_DIR=$(pwd)/tools/prebuilts/
-export ANDROID_RELEASE_BRANCH=android-9.0.0_r53
-export STOCK_DATA_DIR=$(pwd)/stock_data/
-export FLASH_ZIP_DIR=$(pwd)/tools/flash-zip/
-export MKDTBOIMG_DIR=$(pwd)/tools/mkdtboimg/
-export TARGET_IMAGES_DIR=$(pwd)/build/
-export CLANG_DIR=$(pwd)/tools/clang-linux-x86/
-export CLANG_VERSION=clang-4691093
-export PATH=$TOOLCHAIN_DIR/bin/:$CLANG_DIR/$CLANG_VERSION/bin:$MKDTBOIMG_DIR:$AIK_DIR:$PATH
-export CROSS_COMPILE=$TOOLCHAIN_DIR/bin/aarch64-linux-android-
-export LD_LIBRARY_PATH=$TOOLCHAIN_DIR/aarch64-linux-gnu/lib64
-export OPPO_TARGET_DEVICE=MSM_19781
-export TARGET_PRODUCT=msmnile
-export DEFCONFIG=vendor/sm8150-perf_defconfig
-#export DEFCONFIG=defconfig
-export DTC_EXT=$DTC_DIR/dtc
 
-clean() {
+export KBUILD_BUILD_HOST="$HOSST"
+export KBUILD_BUILD_USER="$USEER"
+export KBUILD_BUILD_VERSION="$ID"
 
-#make sure submodules are initialized
-#git submodule update --init --remote --recursive
+mkdir -p out
 
-#make sure that sh files in AIK dir are executable
-chmod +x $AIK_DIR/*.sh
+make O=out clean && make O=out mrproper
+make "$DEFCONFIG" O=out
 
-#make sure that sh files in AIK dir are executable
-chmod +x $MKDTBOIMG_DIR/*.py
+echo -e "$yellow << compiling the kernel >> \n $white"
 
-#clean AIK Dir
-bash $AIK_DIR/cleanup.sh
-
-#extract boot image
-cd $STOCK_DATA_DIR
-gzip -f -c -d boot.img.gz > boot.img
-
-#switch to the right branch of toolchain
-cd $TOOLCHAIN_DIR
-git checkout $ANDROID_RELEASE_BRANCH -f
-
-#switch to the right branch of toolchain
-cd $CLANG_DIR
-git checkout $ANDROID_RELEASE_BRANCH -f
-
-#switch to the right branch of prebuilts
-cd $PREBUILTS_DIR
-git checkout $ANDROID_RELEASE_BRANCH -f
-
-#make sure build output dir exists 
-mkdir -p $TARGET_IMAGES_DIR
-
-cd $KERNEL_SOURCE_DIR
-
-#clean build resources
-make clean O=out
-make mrproper O=out
-make $DEFCONFIG O=out
-
-}
+# stiker post
 
 
-build() {
+build_kernel || error=true
 
-#build kernel
-cd $KERNEL_SOURCE_DIR
-make -j$(nproc --all) O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu-
+DATE=$(date +"%Y%m%d-%H%M%S")
+KERVER=$(make kernelversion)
+KOMIT=$(git log --pretty=format:'"%h : %s"' -1)
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
-}
-
-build_boot() {
-
-#unpack stock image
-cd $AIK_DIR
-./unpackimg.sh $STOCK_DATA_DIR/boot.img
-
-#replace kernel in unpacked stock image
-cp $KERNEL_SOURCE_DIR/out/arch/arm64/boot/Image-dtb ./split_img/boot.img-zImage
-
-#repack stock image
-./repackimg.sh
-
-#make sure build out dir is existing
-mkdir -p $TARGET_IMAGES_DIR
-
-#copy new boot img to target dir
-cp image-new.img $TARGET_IMAGES_DIR/boot.img
-
-}
-
-build_dtbo() {
-
-#make sure build output dir exists 
-mkdir -p $TARGET_IMAGES_DIR
-
-rm $TARGET_IMAGES_DIR/dtbo.img
-
-#make dtbo.img
-cd $KERNEL_SOURCE_DIR/out/arch/arm64/boot
-mkdtboimg.py create dtbo.img dts/*/*.dtbo
-
-#copy new dtbo img to target dir
-cp dtbo.img $TARGET_IMAGES_DIR/dtbo.img
-
-}
-
-build_zip() {
+export IMG="$MY_DIR"/out/arch/arm64/boot/Image.gz-dtb
+export dtbo="$MY_DIR"/out/arch/arm64/boot/dtbo.img
+export dtb="$MY_DIR"/out/arch/arm64/boot/dtb.img
 
 
-#make sure build output dir exists 
-mkdir -p $TARGET_IMAGES_DIR
+        if [ -f "$IMG" ]; then
+                echo -e "$green << selesai dalam $(($Diff / 60)) menit and $(($Diff % 60)) detik >> \n $white"
+        else
+                echo -e "$red << Gagal dalam membangun kernel!!! , cek kembali kode anda >>$white"
+                tg_post_msg "GAGAL!!! uploading log"
+                tg_error "error.log" "$CHATID"
+                tg_post_msg "done" "$CHATID"
+                rm -rf out
+                rm -rf testing.log
+                rm -rf error.log
+                exit 1
+        fi
 
-rm $TARGET_IMAGES_DIR/*.zip
+TEXT1="
+*Build Completed Successfully*
+━━━━━━━━━ஜ۩۞۩ஜ━━━━━━━━
+* Device* : \`$DEVICE\`
+* Code name* : \`Sweet | Sweetin\`
+* Variant Build* : \`$TYPE\`
+* Time Build* : \`$(($Diff / 60)) menit\`
+* Branch Build* : \`$BRANCH\`
+* System Build* : \`$MESIN\`
+* Date Build* : \`$TGL\` \`$WAKTU\`
+* Last Commit* : \`$KOMIT\`
+* Author* : @RooGhz720
+━━━━━━━━━ஜ۩۞۩ஜ━━━━━━━━
+"
 
-#copy files to flashing zip
-cp $KERNEL_SOURCE_DIR/out/arch/arm64/boot/Image-dtb $FLASH_ZIP_DIR/Image-dtb
-cp $KERNEL_SOURCE_DIR/out/arch/arm64/boot/dtbo.img $FLASH_ZIP_DIR/dtbo.img
-
-#create flashable zip
-cd $FLASH_ZIP_DIR
-zip $TARGET_IMAGES_DIR/realme-x2pro-kernel-$(date +"%Y%m%d_%H%M%S").zip -r ./
-
-}
-
-#clean previous builds
-for i in "$@" ; do
-    if [[ $i == "--clean" ]] ; then
-        echo "Cleaning."
-	clean
-	break
-    fi
-done
-
-#measure time
-start=`date +%s`
-
-#build kernel
-for i in "$@" ; do
-    if [[ $i == "--kernel" ]] ; then
-        echo "Building Kernel."
-	time build
-	break
-    fi
-done
-
-#build boot image
-for i in "$@" ; do
-    if [[ $i == "--boot_img" ]] ; then
-        echo "Building Boot Image."
-        time build_boot
-        break
-    fi
-done
-
-#build dtbo image
-for i in "$@" ; do
-    if [[ $i == "--dtbo" ]] ; then
-        echo "Building DTBO Image."
-        time build_dtbo
-        break
-    fi
-done
-
-
-#build flashable zip
-for i in "$@" ; do
-    if [[ $i == "--zip" ]] ; then
-        echo "Building Flashable Zip File."
-        time build_zip
-        break
-    fi
-done
-
-end=`date +%s`
-runtime=$((end-start))
-
-echo $runtime
+        if [ -f "$IMG" ]; then
+                echo -e "$green << cloning AnyKernel from your repo >> \n $white"
+                git clone --depth=1 "$AnyKernel" --single-branch -b "$AnyKernelbranch" zip
+                echo -e "$yellow << making kernel zip >> \n $white"
+                cp -r "$IMG" zip/
+                cp -r "$dtbo" zip/
+                cp -r "$dtb" zip/
+                cd zip
+                export ZIP="$KERNEL_NAME"-"$TYPE"-"$TGL"
+                zip -r9 "$ZIP" * -x .git README.md LICENSE *placeholder
+                curl -sLo zipsigner-3.0.jar https://github.com/Magisk-Modules-Repo/zipsigner/raw/master/bin/zipsigner-3.0-dexed.jar
+                java -jar zipsigner-3.0.jar "$ZIP".zip "$ZIP"-signed.zip
+                tg_sticker "CAACAgUAAxkBAAGLlS1jnv1FJAsPoU7-iyZf75TIIbD0MQACYQIAAvlQCFTxT3DFijW-FSwE"
+                tg_post_msg "$TEXT1" "$CHATID"
+                tg_post_build "$ZIP"-signed.zip "$CHATID"
+                cd ..
+                rm -rf error.log
+                rm -rf out
+                rm -rf zip
+                rm -rf testing.log
+                exit
+        fi
