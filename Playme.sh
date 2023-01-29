@@ -1,99 +1,187 @@
+#!/bin/bash
+exec > >(tee -i build.log)
+exec 2>&1
+set -x
 
-#! /bin/sh
-set -e o pipefail
+export ARCH=arm64
+export SUBARCH=arm64
+export HEADER_ARCH=arm64
+export TOOLCHAIN_DIR=$(pwd)/tools/toolchain
+export KERNEL_SOURCE_DIR=$(pwd)/kernel_source/
+export AIK_DIR=$(pwd)/tools/AIK-Linux/
+export DTC_DIR=$(pwd)/tools/prebuilts/linux-x86/dtc
+export PREBUILTS_DIR=$(pwd)/tools/prebuilts/
+export ANDROID_RELEASE_BRANCH=android-9.0.0_r53
+export STOCK_DATA_DIR=$(pwd)/stock_data/
+export FLASH_ZIP_DIR=$(pwd)/tools/flash-zip/
+export MKDTBOIMG_DIR=$(pwd)/tools/mkdtboimg/
+export TARGET_IMAGES_DIR=$(pwd)/build/
+export CLANG_DIR=$(pwd)/tools/clang-linux-x86/
+export CLANG_VERSION=clang-4691093
+export PATH=$TOOLCHAIN_DIR/bin/:$CLANG_DIR/$CLANG_VERSION/bin:$MKDTBOIMG_DIR:$AIK_DIR:$PATH
+export CROSS_COMPILE=$TOOLCHAIN_DIR/bin/aarch64-linux-android-
+export LD_LIBRARY_PATH=$TOOLCHAIN_DIR/aarch64-linux-gnu/lib64
+export OPPO_TARGET_DEVICE=MSM_19781
+export TARGET_PRODUCT=msmnile
+export DEFCONFIG=vendor/sm8150-perf_defconfig
+#export DEFCONFIG=defconfig
+export DTC_EXT=$DTC_DIR/dtc
 
-KERNEL_DIR=$PWD
-TG_BOT_TOKEN=$1
-CHATID=$2
-PREFIX=$3
+clean() {
 
-exports() {
-	export KBUILD_BUILD_USER="archie"
-	export KBUILD_BUILD_HOST="HyperBeast"
-	export ARCH=arm64
-	export SUBARCH=arm64
-	export CROSS_COMPILE_ARM32=$KERNEL_DIR/linaro32/bin/armv8l-linux-gnueabihf-
-# 	export KBUILD_COMPILER_STRING=$($KERNEL_DIR/clang-llvm/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')
-# 	LD_LIBRARY_PATH=$KERNEL_DIR/clang-llvm/lib64:$LD_LIBRARY_PATH
-# 	export LD_LIBRARY_PATH
-	export CROSS_COMPILE=$KERNEL_DIR/linaro/bin/aarch64-linux-gnu-
-# 	PATH=$KERNEL_DIR/clang-llvm/bin/:$KERNEL_DIR/aarch64-linux-android-4.9/bin/:$PATH
-# 	export PATH
-	export BOT_MSG_URL="https://api.telegram.org/bot$TG_BOT_TOKEN/sendMessage"
-	export BOT_BUILD_URL="https://api.telegram.org/bot$TG_BOT_TOKEN/sendDocument"
-	export PROCS=$(nproc --all)
-	DEFCONFIG=chef_defconfig
+#make sure submodules are initialized
+#git submodule update --init --remote --recursive
+
+#make sure that sh files in AIK dir are executable
+chmod +x $AIK_DIR/*.sh
+
+#make sure that sh files in AIK dir are executable
+chmod +x $MKDTBOIMG_DIR/*.py
+
+#clean AIK Dir
+bash $AIK_DIR/cleanup.sh
+
+#extract boot image
+cd $STOCK_DATA_DIR
+gzip -f -c -d boot.img.gz > boot.img
+
+#switch to the right branch of toolchain
+cd $TOOLCHAIN_DIR
+git checkout $ANDROID_RELEASE_BRANCH -f
+
+#switch to the right branch of toolchain
+cd $CLANG_DIR
+git checkout $ANDROID_RELEASE_BRANCH -f
+
+#switch to the right branch of prebuilts
+cd $PREBUILTS_DIR
+git checkout $ANDROID_RELEASE_BRANCH -f
+
+#make sure build output dir exists 
+mkdir -p $TARGET_IMAGES_DIR
+
+cd $KERNEL_SOURCE_DIR
+
+#clean build resources
+make clean O=out
+make mrproper O=out
+make $DEFCONFIG O=out
+
 }
 
-clone() {
-	echo " "
-	echo "★★Cloning GCC Toolchain from GitHub .."
-	git clone --progress -j32 --depth 1 --no-single-branch https://github.com/archie9211/linaro -b master linaro
-	git clone --progress -j32 --depth 1 --no-single-branch https://github.com/archie9211/linaro -b arm32 linaro32
 
-	echo "★★GCC cloning done"
-	echo ""
-# 	echo "★★Cloning Clang 9 sources"
-# 	wget $CLANG_URL
-# 	mkdir clang-llvm
-# 	tar -C clang-llvm -xvf clang*.tar.gz
-# 	rm -rf clang*.tar.gz
-# 	echo "★★Clang Done, Now Its time for AnyKernel .."
-	git clone --depth 1 --no-single-branch https://github.com/archie9211/AnyKernel2 anykernel
-# 	echo "★★Cloning libufdt"
-# 	git clone https://android.googlesource.com/platform/system/libufdt $KERNEL_DIR/scripts/ufdt/libufdt
-	echo "★★Cloning Kinda Done..!!!"
-}
+build() {
 
-tg_post_msg() {
-	curl -s -X POST "$BOT_MSG_URL" -d chat_id="$2" \
-	-d "disable_web_page_preview=true" \
-	-d "parse_mode=html" \
-	-d text="$1"
+#build kernel
+cd $KERNEL_SOURCE_DIR
+make -j$(nproc --all) O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu-
 
 }
 
-tg_post_build() {
-	curl --progress-bar -F document=@"$1" $BOT_BUILD_URL \
-	-F chat_id="$2"  \
-	-F "disable_web_page_preview=true" \
-	-F "parse_mode=html" \
-	-F caption="$3"  
+build_boot() {
+
+#unpack stock image
+cd $AIK_DIR
+./unpackimg.sh $STOCK_DATA_DIR/boot.img
+
+#replace kernel in unpacked stock image
+cp $KERNEL_SOURCE_DIR/out/arch/arm64/boot/Image-dtb ./split_img/boot.img-zImage
+
+#repack stock image
+./repackimg.sh
+
+#make sure build out dir is existing
+mkdir -p $TARGET_IMAGES_DIR
+
+#copy new boot img to target dir
+cp image-new.img $TARGET_IMAGES_DIR/boot.img
+
 }
 
-build_kernel() {
-	make O=out $DEFCONFIG
-	BUILD_START=$(date +"%s")
-	tg_post_msg "<b>NEW CI DarkOne Build Triggered</b>%0A<b>Date : </b><code>$(TZ=Asia/Jakarta date)</code>%0A<b>Device : </b><code>chef</code>%0A<b>Pipeline Host : </b><code>Github Actions</code>%0A<b>Host Core Count : </b><code>$PROCS</code>%0A<b>Compiler Used : </b><code>$KBUILD_COMPILER_STRING</code>" "$CHATID"
-	make -j$PROCS O=out \
-		CROSS_COMPILE=$CROSS_COMPILE \
-		CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 2>&1 | tee error.log
-# 		CC=$CC \
-# 		CLANG_TRIPLE=aarch64-linux-gnu- 2>&1 | tee error.log
-	#make dtbo image
-# 	make O=out dtbo.img
-	BUILD_END=$(date +"%s")
-	DIFF=$((BUILD_END - BUILD_START))
-	check_img
+build_dtbo() {
+
+#make sure build output dir exists 
+mkdir -p $TARGET_IMAGES_DIR
+
+rm $TARGET_IMAGES_DIR/dtbo.img
+
+#make dtbo.img
+cd $KERNEL_SOURCE_DIR/out/arch/arm64/boot
+mkdtboimg.py create dtbo.img dts/*/*.dtbo
+
+#copy new dtbo img to target dir
+cp dtbo.img $TARGET_IMAGES_DIR/dtbo.img
+
 }
-check_img() {
-	if [ -f $KERNEL_DIR/out/arch/arm64/boot/Image.gz-dtb ] 
-	    then
-		gen_zip
-	else
-		tg_post_build "error.log" "$CHATID" "<b>Build failed to compile after $((DIFF / 60)) minute(s) and $((DIFF % 60)) seconds</b>"
-	fi
+
+build_zip() {
+
+
+#make sure build output dir exists 
+mkdir -p $TARGET_IMAGES_DIR
+
+rm $TARGET_IMAGES_DIR/*.zip
+
+#copy files to flashing zip
+cp $KERNEL_SOURCE_DIR/out/arch/arm64/boot/Image-dtb $FLASH_ZIP_DIR/Image-dtb
+cp $KERNEL_SOURCE_DIR/out/arch/arm64/boot/dtbo.img $FLASH_ZIP_DIR/dtbo.img
+
+#create flashable zip
+cd $FLASH_ZIP_DIR
+zip $TARGET_IMAGES_DIR/realme-x2pro-kernel-$(date +"%Y%m%d_%H%M%S").zip -r ./
+
 }
-gen_zip() {
-# 	mv $KERNEL_DIR/out/arch/arm64/boot/Image.gz-dtb anykernel/Image.gz-dtb
-# 	mv $KERNEL_DIR/out/arch/arm64/boot/dtbo.img AnyKernel2/dtbo.img
-	cd $KERNEL_DIR/anykernel
-	zip -r9 DarkOne-v3.0-chef-$PREIFIX * -x .git README.md
-	MD5CHECK=$(md5sum $ZIPNAME-$ARG1-$DATE.zip | cut -d' ' -f1)
-	tg_post_build DarkOne-v3.0-chef-$PREFIX.zip "$CHATID" "Build took : $((DIFF / 60)) minute(s) and $((DIFF % 60)) second(s) | MD5 Checksum : <code>$MD5CHECK</code>"
-	cd ..
-}
-exports
-# clone
-# build_kernel
-gen_zip
+
+#clean previous builds
+for i in "$@" ; do
+    if [[ $i == "--clean" ]] ; then
+        echo "Cleaning."
+	clean
+	break
+    fi
+done
+
+#measure time
+start=`date +%s`
+
+#build kernel
+for i in "$@" ; do
+    if [[ $i == "--kernel" ]] ; then
+        echo "Building Kernel."
+	time build
+	break
+    fi
+done
+
+#build boot image
+for i in "$@" ; do
+    if [[ $i == "--boot_img" ]] ; then
+        echo "Building Boot Image."
+        time build_boot
+        break
+    fi
+done
+
+#build dtbo image
+for i in "$@" ; do
+    if [[ $i == "--dtbo" ]] ; then
+        echo "Building DTBO Image."
+        time build_dtbo
+        break
+    fi
+done
+
+
+#build flashable zip
+for i in "$@" ; do
+    if [[ $i == "--zip" ]] ; then
+        echo "Building Flashable Zip File."
+        time build_zip
+        break
+    fi
+done
+
+end=`date +%s`
+runtime=$((end-start))
+
+echo $runtime
