@@ -1,8 +1,6 @@
 #!/bin/bash
 #
-# Script For Building Android arm64 Kernel
-#
-# Copyright (C) 2021-2023 RooGhz720 <rooghz720@gmail.com>
+# Copyright (C) 2020 Fox kernel project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -37,57 +35,135 @@ echo -e "$green << setup dirs >> \n $white"
 MY_DIR="${BASH_SOURCE%/*}"
 if [[ ! -d "$MY_DIR" ]]; then MY_DIR="$PWD"; fi
 
-# MIUI = High Dimens
-# OSS = Low Dimens
+# Now u can chose which things need to be modified
+# CHATID = chatid of a telegram group/channel
+# API_BOT = api bot of a telegram bot
+#
+# DEVICE = your device codename
+# KERNEL_NAME = the name of ur kranul
+#
+# DEFCONFIG = defconfig that will be used to compile the kernel
+#
+# AnyKernel = the url of your modified anykernel script
+# AnyKernelbranch = the branch of your modified anykernel script
+#
+# HOSST = build host
+# USEER = build user
+#
+# TOOLCHAIN = the toolchain u want to use "gcc/clang"
 
-export CHATID API_BOT TYPE_KERNEL
+CHATID="5653007871"
+API_BOT="6132882739:AAFLa-lMLYXWits-R-eCem9DQ3u18LRsg_0"
 
+DEVICE="Redmi Note 4/4X"
+CODENAME="mido"
+KERNEL_NAME="FussionKernel"
 
-# Kernel build config
-TYPE="MIUI"
-DEVICE="Redmi note 10 pro"
-KERNEL_NAME="AGHISNA"
-DEFCONFIG="sweet_defconfig"
-AnyKernel="https://github.com/RooGhz720/Anykernel3"
+DEFCONFIG="mido_defconfig"
+
+AnyKernel="https://github.com/Hunter-commits/anykernel.git"
 AnyKernelbranch="master"
-HOSST="pakar"
-USEER="RooGhz720"
-ID="Alesaa"
-MESIN="Git Workflows"
 
+HOSST="Alone's Siapamu_bot"
+USEER="Alone0316"
 
+TOOLCHAIN="clang"
 
-# clang stuff
-		echo -e "$green << cloning clang >> \n $white"
-		git clone --depth=1 -b release/15.x https://gitlab.com/GhostMaster69-dev/cosmic-clang.git "$HOME"/clang
+# setup telegram env
+export BOT_MSG_URL="https://api.telegram.org/bot$API_BOT/sendMessage"
+export BOT_BUILD_URL="https://api.telegram.org/bot$API_BOT/sendDocument"
 
-	export PATH="$HOME/clang/bin:$PATH"
-	export KBUILD_COMPILER_STRING=$("$HOME"/clang/bin/clang --version | head -n 1 | sed -e 's/  */ /g' -e 's/[[:space:]]*$//' -e 's/^.*clang/clang/')
+tg_post_msg() {
+        curl -s -X POST "$BOT_MSG_URL" -d chat_id="$2" \
+        -d "parse_mode=html" \
+        -d text="$1"
+}
+
+tg_post_build() {
+        #Post MD5Checksum alongwith for easeness
+        MD5CHECK=$(md5sum "$1" | cut -d' ' -f1)
+
+        #Show the Checksum alongwith caption
+        curl --progress-bar -F document=@"$1" "$BOT_BUILD_URL" \
+        -F chat_id="$2" \
+        -F "disable_web_page_preview=true" \
+        -F "parse_mode=html" \
+        -F caption="$3 build finished in $(($Diff / 60)) minutes and $(($Diff % 60)) seconds | <b>MD5 Checksum : </b><code>$MD5CHECK</code>"
+}
+
+tg_error() {
+        curl --progress-bar -F document=@"$1" "$BOT_BUILD_URL" \
+        -F chat_id="$2" \
+        -F "disable_web_page_preview=true" \
+        -F "parse_mode=html" \
+        -F caption="$3Failed to build , check <code>error.log</code>"
+}
+
+# Now let's clone gcc/clang on HOME dir
+# And after that , the script start the compilation of the kernel it self
+# For regen the defconfig . use the regen.sh script
+
+if [ "$TOOLCHAIN" == gcc ]; then
+	if [ ! -d "$HOME/gcc64" ] && [ ! -d "$HOME/gcc32" ]
+	then
+		echo -e "$green << cloning gcc from arter >> \n $white"
+		git clone --depth=1 https://github.com/mvaisakh/gcc-arm64 "$HOME"/gcc64
+		git clone --depth=1 https://github.com/mvaisakh/gcc-arm "$HOME"/gcc32
+	fi
+	export PATH="$HOME/gcc64/bin:$HOME/gcc32/bin:$PATH"
+	export STRIP="$HOME/gcc64/aarch64-elf/bin/strip"
+	export KBUILD_COMPILER_STRING=$("$HOME"/gcc64/bin/aarch64-elf-gcc --version | head -n 1)
+elif [ "$TOOLCHAIN" == clang ]; then
+	if [ ! -d "$HOME/proton_clang" ]
+	then
+		echo -e "$green << cloning proton clang >> \n $white"
+		git clone --depth=1 https://github.com/kdrag0n/proton-clang.git "$HOME"/proton_clang
+	fi
+	export PATH="$HOME/proton_clang/bin:$PATH"
+	export STRIP="$HOME/proton_clang/aarch64-linux-gnu/bin/strip"
+	export KBUILD_COMPILER_STRING=$("$HOME"/proton_clang/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')
+fi
 
 # Setup build process
 
 build_kernel() {
 Start=$(date +"%s")
 
+if [ "$TOOLCHAIN" == clang  ]; then
+	echo clang
 	make -j$(nproc --all) O=out \
                               ARCH=arm64 \
-                              LLVM=1 \
-                              LLVM_IAS=1 \
-                              AR=llvm-ar \
-                              NM=llvm-nm \
-                              LD=ld.lld \
-                              OBJCOPY=llvm-objcopy \
-                              OBJDUMP=llvm-objdump \
-                              STRIP=llvm-strip \
-                              CC=clang \
-                              CROSS_COMPILE=aarch64-linux-gnu- \
-                              CROSS_COMPILE_ARM32=arm-linux-gnueabi-  2>&1 | tee error.log
+	                      CC="ccache clang" \
+	                      AR=llvm-ar \
+	                      NM=llvm-nm \
+	                      STRIP=llvm-strip \
+	                      OBJCOPY=llvm-objcopy \
+	                      OBJDUMP=llvm-objdump \
+	                      OBJSIZE=llvm-size \
+	                      READELF=llvm-readelf \
+	                      HOSTCC=clang \
+	                      HOSTCXX=clang++ \
+	                      HOSTAR=llvm-ar \
+	                      CROSS_COMPILE=aarch64-linux-gnu- \
+	                      CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+	                      CONFIG_DEBUG_SECTION_MISMATCH=y \
+	                      CONFIG_NO_ERROR_ON_MISMATCH=y   2>&1 | tee error.log
+elif [ "$TOOLCHAIN" == gcc  ]; then
+	echo gcc
+	make -j$(nproc --all) O=out \
+			      ARCH=arm64 \
+			      CROSS_COMPILE=aarch64-elf- \
+			      CROSS_COMPILE_ARM32=arm-eabi- 2>&1 | tee error.log
+fi
 
 End=$(date +"%s")
 Diff=$(($End - $Start))
 }
 
+export IMG="$MY_DIR"/out/arch/arm64/boot/Image.gz-dtb
+
 # Let's start
+
 echo -e "$green << doing pre-compilation process >> \n $white"
 export ARCH=arm64
 export SUBARCH=arm64
@@ -95,7 +171,6 @@ export HEADER_ARCH=arm64
 
 export KBUILD_BUILD_HOST="$HOSST"
 export KBUILD_BUILD_USER="$USEER"
-export KBUILD_BUILD_VERSION="$ID"
 
 mkdir -p out
 
@@ -103,64 +178,36 @@ make O=out clean && make O=out mrproper
 make "$DEFCONFIG" O=out
 
 echo -e "$yellow << compiling the kernel >> \n $white"
-
-# stiker post
-
+tg_post_msg "<code>Building Image.gz-dtb</code>" "$CHATID"
 
 build_kernel || error=true
 
 DATE=$(date +"%Y%m%d-%H%M%S")
 KERVER=$(make kernelversion)
-KOMIT=$(git log --pretty=format:'"%h : %s"' -1)
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-
-export IMG="$MY_DIR"/out/arch/arm64/boot/Image.gz-dtb
-export dtbo="$MY_DIR"/out/arch/arm64/boot/dtbo.img
-export dtb="$MY_DIR"/out/arch/arm64/boot/dtb.img
-
 
         if [ -f "$IMG" ]; then
-                echo -e "$green << selesai dalam $(($Diff / 60)) menit and $(($Diff % 60)) detik >> \n $white"
+                echo -e "$green << Build completed in $(($Diff / 60)) minutes and $(($Diff % 60)) seconds >> \n $white"
         else
-                echo -e "$red << Gagal dalam membangun kernel!!! , cek kembali kode anda >>$white"
-                tg_post_msg "GAGAL!!! uploading log"
+                echo -e "$red << Failed to compile the kernel , Check up to find the error >>$white"
                 tg_error "error.log" "$CHATID"
-                tg_post_msg "done" "$CHATID"
                 rm -rf out
                 rm -rf testing.log
                 rm -rf error.log
                 exit 1
         fi
 
-TEXT1="
-*Build Completed Successfully*
-━━━━━━━━━ஜ۩۞۩ஜ━━━━━━━━
-* Device* : \`$DEVICE\`
-* Code name* : \`Sweet | Sweetin\`
-* Variant Build* : \`$TYPE\`
-* Time Build* : \`$(($Diff / 60)) menit\`
-* Branch Build* : \`$BRANCH\`
-* System Build* : \`$MESIN\`
-* Date Build* : \`$TGL\` \`$WAKTU\`
-* Last Commit* : \`$KOMIT\`
-* Author* : @RooGhz720
-━━━━━━━━━ஜ۩۞۩ஜ━━━━━━━━
-"
-
         if [ -f "$IMG" ]; then
                 echo -e "$green << cloning AnyKernel from your repo >> \n $white"
-                git clone --depth=1 "$AnyKernel" --single-branch -b "$AnyKernelbranch" zip
+                git clone "$AnyKernel" --single-branch -b "$AnyKernelbranch" zip
                 echo -e "$yellow << making kernel zip >> \n $white"
                 cp -r "$IMG" zip/
-                cp -r "$dtbo" zip/
-                cp -r "$dtb" zip/
                 cd zip
-                export ZIP="$KERNEL_NAME"-"$TYPE"-"$TGL"
-                zip -r9 "$ZIP" * -x .git README.md LICENSE *placeholder
-                curl -sLo zipsigner-3.0.jar https://github.com/Magisk-Modules-Repo/zipsigner/raw/master/bin/zipsigner-3.0-dexed.jar
+                mv Image.gz-dtb zImage
+                export ZIP="$KERNEL_NAME"-"$CODENAME"-"$DATE"
+                zip -r "$ZIP" *
+                curl -sLo zipsigner-3.0.jar https://raw.githubusercontent.com/Hunter-commits/AnyKernel/master/zipsigner-3.0.jar
                 java -jar zipsigner-3.0.jar "$ZIP".zip "$ZIP"-signed.zip
-                tg_sticker "CAACAgUAAxkBAAGLlS1jnv1FJAsPoU7-iyZf75TIIbD0MQACYQIAAvlQCFTxT3DFijW-FSwE"
-                tg_post_msg "$TEXT1" "$CHATID"
+                tg_post_msg "<b>=============================</b> %0A <b>× FussionKernel For Redmi note 4/4x ×</b> %0A <b>=============================</b> %0A%0A <b>Date : </b> <code>$(TZ=India/Kolkata date)</code> %0A%0A <b>Device Code Name:</b> <code>$CODENAME</code> %0A%0A <b>Kernel Version :</b> <code>$KERVER</code> %0A%0A <b>Developer:</b> @Alone0316 %0A%0A <b>Support group:</b> t.me/fussionkernelmido %0A%0A <b>Channel:</b> t.me/fkupdates %0A%0A <b>Changelog:</b> %0A https://github.com/Alone0316/kernel_mido/commits/normal %0A%0A <b>Download Normal version:</b> %0A https://t.me/fkupdates/ %0A%0A <b>Download Overclock version:</b> %0A https://t.me/fkupdates/ #fussionkernel #mido" "$CHATID"
                 tg_post_build "$ZIP"-signed.zip "$CHATID"
                 cd ..
                 rm -rf error.log
