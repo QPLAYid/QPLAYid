@@ -46,13 +46,13 @@ export CHATID API_BOT TYPE_KERNEL
 # Kernel build config
 TYPE="MIUI"
 DEVICE="Redmi note 10 pro"
-KERNEL_NAME="SWEET"
-DEFCONFIG="sweeway.defconfig"
-AnyKernel="https://github.com/QPLAYid/Anykernel3"
+KERNEL_NAME="AGHISNA"
+DEFCONFIG="sweet_defconfig"
+AnyKernel="https://github.com/RooGhz720/Anykernel3"
 AnyKernelbranch="master"
-HOSST="Aku_bot"
-USEER="Papimonyeyo"
-ID="Qplaysuper"
+HOSST="MyLabs"
+USEER="RooGhz720"
+ID="AmiciaDeRune"
 MESIN="Git Workflows"
 
 
