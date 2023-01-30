@@ -47,7 +47,7 @@ export CHATID API_BOT TYPE_KERNEL
 TYPE="MIUI"
 DEVICE="Redmi note 10 pro"
 KERNEL_NAME="AGHISNA"
-DEFCONFIG="sweet_defconfig"
+DEFCONFIG="sweet_user_defconfig"
 AnyKernel="https://github.com/RooGhz720/Anykernel3"
 AnyKernelbranch="master"
 HOSST="MyLabs"
