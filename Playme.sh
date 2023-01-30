@@ -47,7 +47,7 @@ export CHATID API_BOT TYPE_KERNEL
 TYPE="MIUI"
 DEVICE="Redmi note 10 pro"
 KERNEL_NAME="SWEET"
-DEFCONFIG="sweet_defconfig"
+DEFCONFIG="sweeway.defconfig"
 AnyKernel="https://github.com/QPLAYid/Anykernel3"
 AnyKernelbranch="master"
 HOSST="Aku_bot"
